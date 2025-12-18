@@ -3,9 +3,9 @@ const DEFAULT_CONFIG = {
     offWorkTime: '18:00',
     reminderInterval: 30,
     customMessages: [
-        '注意休息，保重身体！',
-        '早点回家，明天继续加油！',
-        '工作重要，健康更重要！'
+        '你的工位不会给你养老，但你的腰会。',
+        '加班不会写进 OKR，但会写进病历。',
+        '加班不会升职，只会升肝酶。'
     ]
 };
 
