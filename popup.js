@@ -6,7 +6,9 @@ const DEFAULT_CONFIG = {
         '你的工位不会给你养老，但你的腰会。',
         '加班不会写进 OKR，但会写进病历。',
         '加班不会升职，只会升肝酶。'
-    ]
+    ],
+    messagePool: [],
+    shuffleMessages: true
 };
 
 // DOM 元素
@@ -133,7 +135,8 @@ async function saveConfig() {
         await chrome.storage.sync.set({
             offWorkTime,
             reminderInterval,
-            customMessages: currentMessages
+            customMessages: currentMessages,
+            messagePool: []  // 重置消息池，确保新配置生效
         });
         showStatus('✓ 设置已保存', 'success');
     } catch (error) {

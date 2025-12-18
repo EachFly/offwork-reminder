@@ -6,7 +6,9 @@ const DEFAULT_CONFIG = {
         '你的工位不会给你养老，但你的腰会。',
         '加班不会写进 OKR，但会写进病历。',
         '加班不会升职，只会升肝酶。'
-    ]
+    ],
+    messagePool: [],  // 剩余消息池
+    shuffleMessages: true  // 是否打乱顺序
 };
 
 // 固定提示前缀
@@ -151,12 +153,11 @@ async function checkAndNotify() {
         .replace('{hours}', hours.toString())
         .replace('{minutes}', minutes.toString());
 
-    // 随机选择一条自定义提示语
-    const customMessages = config.customMessages || DEFAULT_CONFIG.customMessages;
-    const randomMessage = customMessages[Math.floor(Math.random() * customMessages.length)];
+    // 从消息池获取一条提示语
+    const selectedMessage = await getNextMessage(config);
 
     // 拼接完整消息
-    const message = prefix + '\n' + randomMessage;
+    const message = prefix + '\n' + selectedMessage;
 
     // 获取或生成图标
     if (!cachedIconUrl) {
@@ -174,6 +175,34 @@ async function checkAndNotify() {
     });
 
     console.log('已发送加班提醒:', message);
+}
+
+// 从消息池获取下一条消息
+async function getNextMessage(config) {
+    let pool = config.messagePool || [];
+    const customMessages = config.customMessages || DEFAULT_CONFIG.customMessages;
+    const shouldShuffle = config.shuffleMessages !== false;  // 默认为 true
+
+    // 如果池为空，重新填充
+    if (pool.length === 0) {
+        pool = [...customMessages];
+
+        // 打乱顺序
+        if (shouldShuffle) {
+            for (let i = pool.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [pool[i], pool[j]] = [pool[j], pool[i]];
+            }
+        }
+    }
+
+    // 从池中取出第一条
+    const message = pool.shift();
+
+    // 更新存储中的消息池
+    await chrome.storage.sync.set({ messagePool: pool });
+
+    return message;
 }
 
 // 监听来自 popup 的测试通知请求
