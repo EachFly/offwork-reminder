@@ -3,12 +3,13 @@ const DEFAULT_CONFIG = {
     offWorkTime: '18:00',
     reminderInterval: 30,
     customMessages: [
-        '你的工位不会给你养老，但你的腰会。',
+        '经算法评估，你今晚猝死风险为 37%。建议逃跑。',
         '加班不会写进 OKR，但会写进病历。',
         '加班不会升职，只会升肝酶。'
     ],
     messagePool: [],  // 剩余消息池
-    shuffleMessages: true  // 是否打乱顺序
+    shuffleMessages: true,  // 是否打乱顺序
+    lastOffWorkNotifyDate: null  // 上次下班通知日期
 };
 
 // 固定提示前缀
@@ -17,6 +18,18 @@ const FIXED_PREFIX = '你已加班{hours}小时{minutes}分钟，别忘了回家
 
 // 定时器名称
 const ALARM_NAME = 'offwork-reminder-alarm';
+
+// 系统空闲状态
+let isSystemLocked = false;
+
+// 设置空闲检测间隔（秒）
+chrome.idle.setDetectionInterval(60);
+
+// 监听系统空闲状态变化
+chrome.idle.onStateChanged.addListener((newState) => {
+    console.log('系统状态变化:', newState);
+    isSystemLocked = (newState === 'locked');
+});
 
 // 生成通知图标（使用 canvas 创建一个简单的紫色圆形图标）
 function generateIconDataUrl() {
@@ -126,6 +139,12 @@ async function setupAlarm() {
 
 // 检查并发送通知
 async function checkAndNotify() {
+    // 如果系统已锁屏，跳过通知
+    if (isSystemLocked) {
+        console.log('系统已锁屏，跳过本次通知');
+        return;
+    }
+
     const config = await getConfig();
     const now = new Date();
 
@@ -136,6 +155,19 @@ async function checkAndNotify() {
 
     // 计算加班时长（毫秒）
     const overtimeMs = now.getTime() - offWorkDate.getTime();
+
+    // 检查是否刚好到下班时间（容差 1 分钟内）
+    const isOffWorkTime = Math.abs(overtimeMs) <= 60 * 1000;
+    const today = now.toDateString();
+
+    if (isOffWorkTime && config.lastOffWorkNotifyDate !== today) {
+        // 发送下班提醒
+        await sendOffWorkNotification(config);
+        // 记录今天已发送下班通知
+        await chrome.storage.sync.set({ lastOffWorkNotifyDate: today });
+        console.log('已发送下班通知');
+        return;
+    }
 
     // 如果还没到下班时间，不发送通知
     if (overtimeMs <= 0) {
@@ -175,6 +207,35 @@ async function checkAndNotify() {
     });
 
     console.log('已发送加班提醒:', message);
+}
+
+// 发送下班通知
+async function sendOffWorkNotification(config) {
+    // 固定前缀
+    const prefix = '下班！别忘了打卡！';
+
+    // 从消息池获取一条提示语
+    const selectedMessage = await getNextMessage(config);
+
+    // 拼接完整消息
+    const message = prefix + '\n' + selectedMessage;
+
+    // 获取或生成图标
+    if (!cachedIconUrl) {
+        cachedIconUrl = await generateIconDataUrl();
+    }
+
+    // 发送通知
+    chrome.notifications.create({
+        type: 'basic',
+        iconUrl: cachedIconUrl,
+        title: '🎉 下班时间到！',
+        message: message,
+        priority: 2,
+        requireInteraction: true  // 要求用户交互，更醒目
+    });
+
+    console.log('已发送下班通知:', message);
 }
 
 // 从消息池获取下一条消息

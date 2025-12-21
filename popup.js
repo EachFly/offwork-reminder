@@ -3,12 +3,13 @@ const DEFAULT_CONFIG = {
     offWorkTime: '18:00',
     reminderInterval: 30,
     customMessages: [
-        '你的工位不会给你养老，但你的腰会。',
+        '经算法评估，你今晚猝死风险为 37%。建议逃跑。',
         '加班不会写进 OKR，但会写进病历。',
         '加班不会升职，只会升肝酶。'
     ],
     messagePool: [],
-    shuffleMessages: true
+    shuffleMessages: true,
+    lastOffWorkNotifyDate: null
 };
 
 // DOM 元素
@@ -21,11 +22,23 @@ const saveBtn = document.getElementById('saveBtn');
 const testBtn = document.getElementById('testBtn');
 const statusDiv = document.getElementById('status');
 
+// 倒计时元素
+const countdownHours = document.getElementById('countdownHours');
+const countdownMinutes = document.getElementById('countdownMinutes');
+const countdownSeconds = document.getElementById('countdownSeconds');
+const countdownStatus = document.getElementById('countdownStatus');
+
 // 当前消息列表
 let currentMessages = [];
 
+// 倒计时定时器
+let countdownTimer = null;
+
 // 页面加载时获取配置
-document.addEventListener('DOMContentLoaded', loadConfig);
+document.addEventListener('DOMContentLoaded', async () => {
+    await loadConfig();  // 等待配置加载完成
+    startCountdown();    // 然后启动倒计时
+});
 
 // 保存按钮点击事件
 saveBtn.addEventListener('click', saveConfig);
@@ -43,6 +56,9 @@ newMessageInput.addEventListener('keypress', (e) => {
     }
 });
 
+// 下班时间变化时更新倒计时
+offWorkTimeInput.addEventListener('change', updateCountdown);
+
 // 加载配置
 async function loadConfig() {
     try {
@@ -51,6 +67,11 @@ async function loadConfig() {
         reminderIntervalInput.value = config.reminderInterval;
         currentMessages = config.customMessages || DEFAULT_CONFIG.customMessages;
         renderMessageList();
+
+        // 配置加载完成后立即更新一次倒计时
+        if (countdownTimer === null) {
+            updateCountdown();
+        }
     } catch (error) {
         console.error('加载配置失败:', error);
         showStatus('加载配置失败', 'error');
@@ -181,6 +202,68 @@ async function testNotification() {
     } catch (error) {
         console.error('发送请求失败:', error);
         showStatus('请求失败', 'error');
+    }
+}
+
+// 启动倒计时
+function startCountdown() {
+    updateCountdown();
+    countdownTimer = setInterval(updateCountdown, 1000);
+}
+
+// 更新倒计时显示
+function updateCountdown() {
+    const offWorkTime = offWorkTimeInput.value;
+    const countdownLabel = document.querySelector('.countdown-label');
+    const countdownDisplay = document.querySelector('.countdown-display');
+
+    if (!offWorkTime) {
+        countdownHours.textContent = '--';
+        countdownMinutes.textContent = '--';
+        countdownSeconds.textContent = '--';
+        countdownStatus.textContent = '请设置下班时间';
+        countdownLabel.textContent = '距离下班还有';
+        countdownLabel.classList.remove('overtime');
+        countdownDisplay.classList.remove('overtime');
+        return;
+    }
+
+    const now = new Date();
+    const [offHour, offMinute] = offWorkTime.split(':').map(Number);
+    const offWorkDate = new Date(now);
+    offWorkDate.setHours(offHour, offMinute, 0, 0);
+
+    const diff = offWorkDate.getTime() - now.getTime();
+
+    if (diff < 0) {
+        // 已经过了下班时间
+        const overtimeDiff = Math.abs(diff);
+        const hours = Math.floor(overtimeDiff / (1000 * 60 * 60));
+        const minutes = Math.floor((overtimeDiff % (1000 * 60 * 60)) / (1000 * 60));
+        const seconds = Math.floor((overtimeDiff % (1000 * 60)) / 1000);
+
+        countdownHours.textContent = String(hours).padStart(2, '0');
+        countdownMinutes.textContent = String(minutes).padStart(2, '0');
+        countdownSeconds.textContent = String(seconds).padStart(2, '0');
+        countdownLabel.textContent = '已加班时长';
+        countdownLabel.classList.add('overtime');
+        countdownDisplay.classList.add('overtime');
+        countdownStatus.textContent = '';
+        countdownStatus.className = 'countdown-status overtime';
+    } else {
+        // 还没到下班时间
+        const hours = Math.floor(diff / (1000 * 60 * 60));
+        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+        countdownHours.textContent = String(hours).padStart(2, '0');
+        countdownMinutes.textContent = String(minutes).padStart(2, '0');
+        countdownSeconds.textContent = String(seconds).padStart(2, '0');
+        countdownLabel.textContent = '距离下班还有';
+        countdownLabel.classList.remove('overtime');
+        countdownDisplay.classList.remove('overtime');
+        countdownStatus.textContent = '';
+        countdownStatus.className = 'countdown-status';
     }
 }
 
