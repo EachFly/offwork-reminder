@@ -18,17 +18,14 @@ const FIXED_PREFIX = '你已加班{hours}小时{minutes}分钟，别忘了回家
 
 // 定时器名称
 const ALARM_NAME = 'offwork-reminder-alarm';
-
-// 系统空闲状态
-let isSystemLocked = false;
+const OFFWORK_ALARM_NAME = 'offwork-time-alarm';
 
 // 设置空闲检测间隔（秒）
 chrome.idle.setDetectionInterval(60);
 
-// 监听系统空闲状态变化
+// 监听系统空闲状态变化（用于日志记录）
 chrome.idle.onStateChanged.addListener((newState) => {
     console.log('系统状态变化:', newState);
-    isSystemLocked = (newState === 'locked');
 });
 
 // 生成通知图标（使用 canvas 创建一个简单的紫色圆形图标）
@@ -91,17 +88,25 @@ chrome.runtime.onInstalled.addListener(async () => {
     }
     // 启动定时器
     await setupAlarm();
+    await setupOffWorkAlarm();
 });
 
 // 启动时也要设置定时器
 chrome.runtime.onStartup.addListener(async () => {
     await setupAlarm();
+    await setupOffWorkAlarm();
 });
 
 // 监听定时器触发
 chrome.alarms.onAlarm.addListener(async (alarm) => {
     if (alarm.name === ALARM_NAME) {
+        // 常规加班提醒
         await checkAndNotify();
+    } else if (alarm.name === OFFWORK_ALARM_NAME) {
+        // 下班时间提醒
+        await sendOffWorkTimeNotification();
+        // 重新设置明天的下班提醒
+        await setupOffWorkAlarm();
     }
 });
 
@@ -110,6 +115,9 @@ chrome.storage.onChanged.addListener(async (changes, areaName) => {
     if (areaName === 'sync') {
         if (changes.reminderInterval) {
             await setupAlarm();
+        }
+        if (changes.offWorkTime) {
+            await setupOffWorkAlarm();
         }
     }
 });
@@ -137,11 +145,44 @@ async function setupAlarm() {
     console.log(`定时器已设置，间隔 ${intervalMinutes} 分钟`);
 }
 
+// 设置下班时间定时器
+async function setupOffWorkAlarm() {
+    // 先清除已有的下班定时器
+    await chrome.alarms.clear(OFFWORK_ALARM_NAME);
+
+    const config = await getConfig();
+    const [offHour, offMinute] = config.offWorkTime.split(':').map(Number);
+
+    const now = new Date();
+    const offWorkTime = new Date(now);
+    offWorkTime.setHours(offHour, offMinute, 0, 0);
+
+    // 如果今天的下班时间已过，设置为明天
+    if (offWorkTime.getTime() <= now.getTime()) {
+        offWorkTime.setDate(offWorkTime.getDate() + 1);
+    }
+
+    // 计算距离下班时间的分钟数
+    const delayMs = offWorkTime.getTime() - now.getTime();
+    const delayMinutes = Math.max(1, Math.ceil(delayMs / (1000 * 60)));
+
+    // 创建一次性定时器
+    chrome.alarms.create(OFFWORK_ALARM_NAME, {
+        delayInMinutes: delayMinutes
+    });
+
+    console.log(`下班提醒已设置，将在 ${delayMinutes} 分钟后（${offWorkTime.toLocaleTimeString()}）触发`);
+}
+
 // 检查并发送通知
 async function checkAndNotify() {
-    // 如果系统已锁屏，跳过通知
-    if (isSystemLocked) {
-        console.log('系统已锁屏，跳过本次通知');
+    // 主动查询系统空闲状态
+    const idleState = await chrome.idle.queryState(60);
+    console.log('当前系统状态:', idleState);
+
+    // 如果系统已锁屏或空闲，跳过通知
+    if (idleState === 'locked' || idleState === 'idle') {
+        console.log('系统已锁屏或空闲，跳过本次通知');
         return;
     }
 
@@ -236,6 +277,34 @@ async function sendOffWorkNotification(config) {
     });
 
     console.log('已发送下班通知:', message);
+}
+
+// 发送下班时间通知（由专门的定时器触发）
+async function sendOffWorkTimeNotification() {
+    // 主动查询系统空闲状态
+    const idleState = await chrome.idle.queryState(60);
+
+    // 如果系统已锁屏或空闲，跳过通知
+    if (idleState === 'locked' || idleState === 'idle') {
+        console.log('系统已锁屏或空闲，跳过下班通知');
+        return;
+    }
+
+    const config = await getConfig();
+    const today = new Date().toDateString();
+
+    // 检查今天是否已发送过
+    if (config.lastOffWorkNotifyDate === today) {
+        console.log('今天已发送过下班通知');
+        return;
+    }
+
+    // 发送通知
+    await sendOffWorkNotification(config);
+
+    // 记录今天已发送下班通知
+    await chrome.storage.sync.set({ lastOffWorkNotifyDate: today });
+    console.log('已发送下班时间通知');
 }
 
 // 从消息池获取下一条消息
