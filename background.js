@@ -162,16 +162,12 @@ async function setupOffWorkAlarm() {
         offWorkTime.setDate(offWorkTime.getDate() + 1);
     }
 
-    // 计算距离下班时间的分钟数
-    const delayMs = offWorkTime.getTime() - now.getTime();
-    const delayMinutes = Math.max(1, Math.ceil(delayMs / (1000 * 60)));
-
-    // 创建一次性定时器
+    // 使用 when 参数设置精确的触发时间（毫秒时间戳）
     chrome.alarms.create(OFFWORK_ALARM_NAME, {
-        delayInMinutes: delayMinutes
+        when: offWorkTime.getTime()
     });
 
-    console.log(`下班提醒已设置，将在 ${delayMinutes} 分钟后（${offWorkTime.toLocaleTimeString()}）触发`);
+    console.log(`下班提醒已设置，将在 ${offWorkTime.toLocaleTimeString()} 触发`);
 }
 
 // 检查并发送通知
