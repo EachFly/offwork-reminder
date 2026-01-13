@@ -81,9 +81,24 @@ async function loadConfig() {
 // 渲染消息列表
 function renderMessageList() {
     messageListDiv.innerHTML = '';
+
+    // 空列表提示
+    if (currentMessages.length === 0) {
+        const emptyDiv = document.createElement('div');
+        emptyDiv.className = 'empty-message';
+        emptyDiv.textContent = '暂无自定义提示语，请添加';
+        messageListDiv.appendChild(emptyDiv);
+        return;
+    }
+
     currentMessages.forEach((msg, index) => {
         const item = document.createElement('div');
         item.className = 'message-item';
+
+        // 序号
+        const number = document.createElement('span');
+        number.className = 'message-number';
+        number.textContent = index + 1;
 
         const text = document.createElement('span');
         text.className = 'message-text';
@@ -94,6 +109,7 @@ function renderMessageList() {
         deleteBtn.textContent = '删除';
         deleteBtn.onclick = () => deleteMessage(index);
 
+        item.appendChild(number);
         item.appendChild(text);
         item.appendChild(deleteBtn);
         messageListDiv.appendChild(item);
@@ -205,6 +221,11 @@ async function testNotification() {
     }
 }
 
+// 格式化时间单位（补零）
+function formatTimeUnit(value) {
+    return String(value).padStart(2, '0');
+}
+
 // 启动倒计时
 function startCountdown() {
     updateCountdown();
@@ -216,6 +237,7 @@ function updateCountdown() {
     const offWorkTime = offWorkTimeInput.value;
     const countdownLabel = document.querySelector('.countdown-label');
     const countdownDisplay = document.querySelector('.countdown-display');
+    const countdownSection = document.querySelector('.countdown-section');
 
     if (!offWorkTime) {
         countdownHours.textContent = '--';
@@ -225,6 +247,7 @@ function updateCountdown() {
         countdownLabel.textContent = '距离下班还有';
         countdownLabel.classList.remove('overtime');
         countdownDisplay.classList.remove('overtime');
+        countdownSection.classList.remove('overtime');
         return;
     }
 
@@ -234,44 +257,36 @@ function updateCountdown() {
     offWorkDate.setHours(offHour, offMinute, 0, 0);
 
     const diff = offWorkDate.getTime() - now.getTime();
+    const isOvertime = diff < 0;
+    const timeDiff = Math.abs(diff);
 
-    if (diff < 0) {
-        // 已经过了下班时间
-        const overtimeDiff = Math.abs(diff);
-        const hours = Math.floor(overtimeDiff / (1000 * 60 * 60));
-        const minutes = Math.floor((overtimeDiff % (1000 * 60 * 60)) / (1000 * 60));
-        const seconds = Math.floor((overtimeDiff % (1000 * 60)) / 1000);
+    // 计算时分秒
+    const hours = Math.floor(timeDiff / (1000 * 60 * 60));
+    const minutes = Math.floor((timeDiff % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((timeDiff % (1000 * 60)) / 1000);
 
-        countdownHours.textContent = String(hours).padStart(2, '0');
-        countdownMinutes.textContent = String(minutes).padStart(2, '0');
-        countdownSeconds.textContent = String(seconds).padStart(2, '0');
-        countdownLabel.textContent = '已加班时长';
-        countdownLabel.classList.add('overtime');
-        countdownDisplay.classList.add('overtime');
-        countdownStatus.textContent = '';
-        countdownStatus.className = 'countdown-status overtime';
-    } else {
-        // 还没到下班时间
-        const hours = Math.floor(diff / (1000 * 60 * 60));
-        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-        const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+    // 更新显示
+    countdownHours.textContent = formatTimeUnit(hours);
+    countdownMinutes.textContent = formatTimeUnit(minutes);
+    countdownSeconds.textContent = formatTimeUnit(seconds);
 
-        countdownHours.textContent = String(hours).padStart(2, '0');
-        countdownMinutes.textContent = String(minutes).padStart(2, '0');
-        countdownSeconds.textContent = String(seconds).padStart(2, '0');
-        countdownLabel.textContent = '距离下班还有';
-        countdownLabel.classList.remove('overtime');
-        countdownDisplay.classList.remove('overtime');
-        countdownStatus.textContent = '';
-        countdownStatus.className = 'countdown-status';
-    }
+    // 更新状态样式
+    countdownLabel.textContent = isOvertime ? '已加班时长' : '距离下班还有';
+    countdownLabel.classList.toggle('overtime', isOvertime);
+    countdownDisplay.classList.toggle('overtime', isOvertime);
+    countdownSection.classList.toggle('overtime', isOvertime);
+    countdownStatus.textContent = '';
+    countdownStatus.className = isOvertime ? 'countdown-status overtime' : 'countdown-status';
 }
 
 // 显示状态消息
 function showStatus(message, type) {
+    statusDiv.textContent = message;
+    statusDiv.className = 'status ' + type;
 
     // 3秒后隐藏
     setTimeout(() => {
         statusDiv.className = 'status';
+        statusDiv.textContent = '';
     }, 3000);
 }

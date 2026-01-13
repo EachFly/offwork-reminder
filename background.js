@@ -15,7 +15,6 @@ const DEFAULT_CONFIG = {
 // 固定提示前缀
 const FIXED_PREFIX = '你已加班{hours}小时{minutes}分钟，别忘了回家！';
 
-
 // 定时器名称
 const ALARM_NAME = 'offwork-reminder-alarm';
 const OFFWORK_ALARM_NAME = 'offwork-time-alarm';
@@ -27,6 +26,13 @@ chrome.idle.setDetectionInterval(60);
 chrome.idle.onStateChanged.addListener((newState) => {
     console.log('系统状态变化:', newState);
 });
+
+// 检查系统是否处于活跃状态
+async function isSystemActive() {
+    const idleState = await chrome.idle.queryState(60);
+    console.log('当前系统状态:', idleState);
+    return idleState === 'active';
+}
 
 // 生成通知图标（使用 canvas 创建一个简单的紫色圆形图标）
 function generateIconDataUrl() {
@@ -85,6 +91,10 @@ chrome.runtime.onInstalled.addListener(async () => {
     const config = await getConfig();
     if (!config.offWorkTime) {
         await chrome.storage.sync.set(DEFAULT_CONFIG);
+    }
+    // 预生成图标缓存
+    if (!cachedIconUrl) {
+        cachedIconUrl = await generateIconDataUrl();
     }
     // 启动定时器
     await setupAlarm();
@@ -172,12 +182,8 @@ async function setupOffWorkAlarm() {
 
 // 检查并发送通知
 async function checkAndNotify() {
-    // 主动查询系统空闲状态
-    const idleState = await chrome.idle.queryState(60);
-    console.log('当前系统状态:', idleState);
-
-    // 如果系统已锁屏或空闲，跳过通知
-    if (idleState === 'locked' || idleState === 'idle') {
+    // 检查系统是否活跃
+    if (!await isSystemActive()) {
         console.log('系统已锁屏或空闲，跳过本次通知');
         return;
     }
@@ -192,19 +198,6 @@ async function checkAndNotify() {
 
     // 计算加班时长（毫秒）
     const overtimeMs = now.getTime() - offWorkDate.getTime();
-
-    // 检查是否刚好到下班时间（容差 1 分钟内）
-    const isOffWorkTime = Math.abs(overtimeMs) <= 60 * 1000;
-    const today = now.toDateString();
-
-    if (isOffWorkTime && config.lastOffWorkNotifyDate !== today) {
-        // 发送下班提醒
-        await sendOffWorkNotification(config);
-        // 记录今天已发送下班通知
-        await chrome.storage.sync.set({ lastOffWorkNotifyDate: today });
-        console.log('已发送下班通知');
-        return;
-    }
 
     // 如果还没到下班时间，不发送通知
     if (overtimeMs <= 0) {
@@ -277,11 +270,8 @@ async function sendOffWorkNotification(config) {
 
 // 发送下班时间通知（由专门的定时器触发）
 async function sendOffWorkTimeNotification() {
-    // 主动查询系统空闲状态
-    const idleState = await chrome.idle.queryState(60);
-
-    // 如果系统已锁屏或空闲，跳过通知
-    if (idleState === 'locked' || idleState === 'idle') {
+    // 检查系统是否活跃
+    if (!await isSystemActive()) {
         console.log('系统已锁屏或空闲，跳过下班通知');
         return;
     }

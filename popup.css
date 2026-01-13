@@ -33,6 +33,12 @@ h1 {
   background: rgba(102, 126, 234, 0.1);
   border-radius: 12px;
   border: 1px solid rgba(102, 126, 234, 0.2);
+  transition: all 0.3s ease;
+}
+
+.countdown-section.overtime {
+  background: rgba(229, 115, 115, 0.1);
+  border-color: rgba(229, 115, 115, 0.3);
 }
 
 .countdown-label {
@@ -75,6 +81,66 @@ h1 {
 .countdown-status.overtime {
   color: #e57373;
   font-weight: 600;
+}
+
+/* 秒数微动画 - 仅缩放，不改变透明度 */
+@keyframes pulse {
+
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+.countdown-display span:last-child {
+  display: inline-block;
+  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.countdown-display.overtime span:last-child {
+  background: linear-gradient(90deg, #e57373 0%, #ef5350 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* 消息序号样式 */
+.message-number {
+  min-width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(102, 126, 234, 0.2);
+  color: #667eea;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* 空列表提示 */
+.empty-message {
+  text-align: center;
+  padding: 20px;
+  color: #808080;
+  font-size: 13px;
+  font-style: italic;
+}
+
+/* 版本号样式 */
+.version {
+  text-align: center;
+  margin-top: 12px;
+  font-size: 11px;
+  color: #606060;
 }
 
 .form-group {
@@ -226,6 +292,7 @@ textarea {
 
 .save-btn:active {
   transform: translateY(0);
+  box-shadow: 0 2px 10px rgba(102, 126, 234, 0.3);
 }
 
 .btn-icon {
