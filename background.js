@@ -1,23 +1,5 @@
-// 默认配置
-const DEFAULT_CONFIG = {
-    offWorkTime: '18:00',
-    reminderInterval: 30,
-    customMessages: [
-        '经算法评估，你今晚猝死风险为 37%。建议逃跑。',
-        '加班不会写进 OKR，但会写进病历。',
-        '加班不会升职，只会升肝酶。'
-    ],
-    messagePool: [],  // 剩余消息池
-    shuffleMessages: true,  // 是否打乱顺序
-    lastOffWorkNotifyDate: null  // 上次下班通知日期
-};
-
-// 固定提示前缀
-const FIXED_PREFIX = '你已加班{hours}小时{minutes}分钟，别忘了回家！';
-
-// 定时器名称
-const ALARM_NAME = 'offwork-reminder-alarm';
-const OFFWORK_ALARM_NAME = 'offwork-time-alarm';
+import { ALARM_NAMES, FIXED_PREFIX, NOTIFICATION_TITLES, SYNC_DEFAULT_CONFIG } from './shared/constants.js';
+import { getConfig, migrateRuntimeState, resetMessagePool, setRuntimeState } from './shared/storage.js';
 
 // 设置空闲检测间隔（秒）
 chrome.idle.setDetectionInterval(60);
@@ -87,35 +69,23 @@ let cachedIconUrl = null;
 
 // 初始化
 chrome.runtime.onInstalled.addListener(async () => {
-    // 设置默认配置
-    const config = await getConfig();
-    if (!config.offWorkTime) {
-        await chrome.storage.sync.set(DEFAULT_CONFIG);
-    }
-    // 预生成图标缓存
-    if (!cachedIconUrl) {
-        cachedIconUrl = await generateIconDataUrl();
-    }
-    // 启动定时器
-    await setupAlarm();
-    await setupOffWorkAlarm();
+    await migrateRuntimeState();
+    await warmUpIcon();
+    await initializeAlarms();
 });
 
 // 启动时也要设置定时器
 chrome.runtime.onStartup.addListener(async () => {
-    await setupAlarm();
-    await setupOffWorkAlarm();
+    await migrateRuntimeState();
+    await initializeAlarms();
 });
 
 // 监听定时器触发
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-    if (alarm.name === ALARM_NAME) {
-        // 常规加班提醒
+    if (alarm.name === ALARM_NAMES.reminder) {
         await checkAndNotify();
-    } else if (alarm.name === OFFWORK_ALARM_NAME) {
-        // 下班时间提醒
+    } else if (alarm.name === ALARM_NAMES.offWork) {
         await sendOffWorkTimeNotification();
-        // 重新设置明天的下班提醒
         await setupOffWorkAlarm();
     }
 });
@@ -129,36 +99,42 @@ chrome.storage.onChanged.addListener(async (changes, areaName) => {
         if (changes.offWorkTime) {
             await setupOffWorkAlarm();
         }
+        if (changes.customMessages || changes.shuffleMessages) {
+            await resetMessagePool();
+        }
     }
 });
 
-// 获取配置
-async function getConfig() {
-    const result = await chrome.storage.sync.get(DEFAULT_CONFIG);
-    return result;
+async function initializeAlarms() {
+    await setupAlarm();
+    await setupOffWorkAlarm();
+}
+
+async function warmUpIcon() {
+    if (!cachedIconUrl) {
+        cachedIconUrl = await generateIconDataUrl();
+    }
 }
 
 // 设置定时器
 async function setupAlarm() {
-    // 先清除已有的定时器
-    await chrome.alarms.clear(ALARM_NAME);
+    await chrome.alarms.clear(ALARM_NAMES.reminder);
 
     const config = await getConfig();
-    const intervalMinutes = config.reminderInterval || DEFAULT_CONFIG.reminderInterval;
+    const intervalMinutes = config.reminderInterval || SYNC_DEFAULT_CONFIG.reminderInterval;
+    const firstTriggerTime = getNextReminderTriggerTime(intervalMinutes);
 
-    // 创建周期性定时器
-    chrome.alarms.create(ALARM_NAME, {
-        delayInMinutes: intervalMinutes,
+    chrome.alarms.create(ALARM_NAMES.reminder, {
+        when: firstTriggerTime.getTime(),
         periodInMinutes: intervalMinutes
     });
 
-    console.log(`定时器已设置，间隔 ${intervalMinutes} 分钟`);
+    console.log(`定时器已设置，间隔 ${intervalMinutes} 分钟，首次触发时间 ${firstTriggerTime.toLocaleTimeString()}`);
 }
 
 // 设置下班时间定时器
 async function setupOffWorkAlarm() {
-    // 先清除已有的下班定时器
-    await chrome.alarms.clear(OFFWORK_ALARM_NAME);
+    await chrome.alarms.clear(ALARM_NAMES.offWork);
 
     const config = await getConfig();
     const [offHour, offMinute] = config.offWorkTime.split(':').map(Number);
@@ -172,8 +148,7 @@ async function setupOffWorkAlarm() {
         offWorkTime.setDate(offWorkTime.getDate() + 1);
     }
 
-    // 使用 when 参数设置精确的触发时间（毫秒时间戳）
-    chrome.alarms.create(OFFWORK_ALARM_NAME, {
+    chrome.alarms.create(ALARM_NAMES.offWork, {
         when: offWorkTime.getTime()
     });
 
@@ -182,7 +157,6 @@ async function setupOffWorkAlarm() {
 
 // 检查并发送通知
 async function checkAndNotify() {
-    // 检查系统是否活跃
     if (!await isSystemActive()) {
         console.log('系统已锁屏或空闲，跳过本次通知');
         return;
@@ -191,86 +165,50 @@ async function checkAndNotify() {
     const config = await getConfig();
     const now = new Date();
 
-    // 解析下班时间
     const [offHour, offMinute] = config.offWorkTime.split(':').map(Number);
     const offWorkDate = new Date(now);
     offWorkDate.setHours(offHour, offMinute, 0, 0);
 
-    // 计算加班时长（毫秒）
     const overtimeMs = now.getTime() - offWorkDate.getTime();
 
-    // 如果还没到下班时间，不发送通知
     if (overtimeMs <= 0) {
         console.log('还没到下班时间，无需提醒');
         return;
     }
 
-    // 计算小时和分钟
     const totalMinutes = Math.floor(overtimeMs / (1000 * 60));
     const hours = Math.floor(totalMinutes / 60);
     const minutes = totalMinutes % 60;
 
-    // 生成固定前缀
     const prefix = FIXED_PREFIX
         .replace('{hours}', hours.toString())
         .replace('{minutes}', minutes.toString());
 
-    // 从消息池获取一条提示语
     const selectedMessage = await getNextMessage(config);
-
-    // 拼接完整消息
     const message = prefix + '\n' + selectedMessage;
-
-    // 获取或生成图标
-    if (!cachedIconUrl) {
-        cachedIconUrl = await generateIconDataUrl();
-    }
-
-    // 发送通知
-    chrome.notifications.create({
-        type: 'basic',
-        iconUrl: cachedIconUrl,
-        title: '⏰ 加班提醒',
-        message: message,
-        priority: 2,
+    await createNotification({
+        title: NOTIFICATION_TITLES.reminder,
+        message,
         requireInteraction: false
     });
 
     console.log('已发送加班提醒:', message);
 }
 
-// 发送下班通知
 async function sendOffWorkNotification(config) {
-    // 固定前缀
     const prefix = '下班！别忘了打卡！';
-
-    // 从消息池获取一条提示语
     const selectedMessage = await getNextMessage(config);
-
-    // 拼接完整消息
     const message = prefix + '\n' + selectedMessage;
-
-    // 获取或生成图标
-    if (!cachedIconUrl) {
-        cachedIconUrl = await generateIconDataUrl();
-    }
-
-    // 发送通知
-    chrome.notifications.create({
-        type: 'basic',
-        iconUrl: cachedIconUrl,
-        title: '🎉 下班时间到！',
-        message: message,
-        priority: 2,
-        requireInteraction: true  // 要求用户交互，更醒目
+    await createNotification({
+        title: NOTIFICATION_TITLES.offWork,
+        message,
+        requireInteraction: true
     });
 
     console.log('已发送下班通知:', message);
 }
 
-// 发送下班时间通知（由专门的定时器触发）
 async function sendOffWorkTimeNotification() {
-    // 检查系统是否活跃
     if (!await isSystemActive()) {
         console.log('系统已锁屏或空闲，跳过下班通知');
         return;
@@ -279,31 +217,24 @@ async function sendOffWorkTimeNotification() {
     const config = await getConfig();
     const today = new Date().toDateString();
 
-    // 检查今天是否已发送过
     if (config.lastOffWorkNotifyDate === today) {
         console.log('今天已发送过下班通知');
         return;
     }
 
-    // 发送通知
     await sendOffWorkNotification(config);
-
-    // 记录今天已发送下班通知
-    await chrome.storage.sync.set({ lastOffWorkNotifyDate: today });
+    await setRuntimeState({ lastOffWorkNotifyDate: today });
     console.log('已发送下班时间通知');
 }
 
-// 从消息池获取下一条消息
 async function getNextMessage(config) {
     let pool = config.messagePool || [];
-    const customMessages = config.customMessages || DEFAULT_CONFIG.customMessages;
-    const shouldShuffle = config.shuffleMessages !== false;  // 默认为 true
+    const customMessages = config.customMessages || SYNC_DEFAULT_CONFIG.customMessages;
+    const shouldShuffle = config.shuffleMessages !== false;
 
-    // 如果池为空，重新填充
     if (pool.length === 0) {
         pool = [...customMessages];
 
-        // 打乱顺序
         if (shouldShuffle) {
             for (let i = pool.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
@@ -312,32 +243,55 @@ async function getNextMessage(config) {
         }
     }
 
-    // 从池中取出第一条
     const message = pool.shift();
-
-    // 更新存储中的消息池
-    await chrome.storage.sync.set({ messagePool: pool });
+    await setRuntimeState({ messagePool: pool });
 
     return message;
 }
 
-// 监听来自 popup 的测试通知请求
+async function createNotification({ title, message, requireInteraction }) {
+    await warmUpIcon();
+
+    return chrome.notifications.create({
+        type: 'basic',
+        iconUrl: cachedIconUrl,
+        title,
+        message,
+        priority: 2,
+        requireInteraction
+    });
+}
+
+function getNextReminderTriggerTime(intervalMinutes) {
+    const now = new Date();
+    const nextTriggerTime = new Date(now);
+
+    nextTriggerTime.setSeconds(0, 0);
+
+    if (nextTriggerTime.getTime() <= now.getTime()) {
+        nextTriggerTime.setMinutes(nextTriggerTime.getMinutes() + 1);
+    }
+
+    const remainder = nextTriggerTime.getMinutes() % intervalMinutes;
+    if (remainder !== 0) {
+        nextTriggerTime.setMinutes(nextTriggerTime.getMinutes() + (intervalMinutes - remainder));
+    }
+
+    return nextTriggerTime;
+}
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'testNotification') {
         const message = request.message;
 
-        // 使用异步函数处理
         (async () => {
             try {
-                // 获取或生成图标
-                if (!cachedIconUrl) {
-                    cachedIconUrl = await generateIconDataUrl();
-                }
+                await warmUpIcon();
 
                 chrome.notifications.create({
                     type: 'basic',
                     iconUrl: cachedIconUrl,
-                    title: '⏰ 加班提醒（测试）',
+                    title: NOTIFICATION_TITLES.test,
                     message: message,
                     priority: 2,
                     requireInteraction: true
@@ -356,7 +310,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             }
         })();
 
-        // 返回 true 表示将异步发送响应
         return true;
     }
 });

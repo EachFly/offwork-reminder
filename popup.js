@@ -1,16 +1,6 @@
-// 默认配置
-const DEFAULT_CONFIG = {
-    offWorkTime: '18:00',
-    reminderInterval: 30,
-    customMessages: [
-        '经算法评估，你今晚猝死风险为 37%。建议逃跑。',
-        '加班不会写进 OKR，但会写进病历。',
-        '加班不会升职，只会升肝酶。'
-    ],
-    messagePool: [],
-    shuffleMessages: true,
-    lastOffWorkNotifyDate: null
-};
+import { FIXED_PREFIX, STATUS_MESSAGES } from './shared/constants.js';
+import { getSyncConfig, saveSyncConfig } from './shared/storage.js';
+import { formatTimeUnit, getCountdownState } from './shared/time.js';
 
 // DOM 元素
 const offWorkTimeInput = document.getElementById('offWorkTime');
@@ -27,6 +17,9 @@ const countdownHours = document.getElementById('countdownHours');
 const countdownMinutes = document.getElementById('countdownMinutes');
 const countdownSeconds = document.getElementById('countdownSeconds');
 const countdownStatus = document.getElementById('countdownStatus');
+const countdownLabel = document.querySelector('.countdown-label');
+const countdownDisplay = document.querySelector('.countdown-display');
+const countdownSection = document.querySelector('.countdown-section');
 
 // 当前消息列表
 let currentMessages = [];
@@ -36,8 +29,8 @@ let countdownTimer = null;
 
 // 页面加载时获取配置
 document.addEventListener('DOMContentLoaded', async () => {
-    await loadConfig();  // 等待配置加载完成
-    startCountdown();    // 然后启动倒计时
+    await loadConfig();
+    startCountdown();
 });
 
 // 保存按钮点击事件
@@ -62,19 +55,18 @@ offWorkTimeInput.addEventListener('change', updateCountdown);
 // 加载配置
 async function loadConfig() {
     try {
-        const config = await chrome.storage.sync.get(DEFAULT_CONFIG);
+        const config = await getSyncConfig();
         offWorkTimeInput.value = config.offWorkTime;
         reminderIntervalInput.value = config.reminderInterval;
-        currentMessages = config.customMessages || DEFAULT_CONFIG.customMessages;
+        currentMessages = config.customMessages;
         renderMessageList();
 
-        // 配置加载完成后立即更新一次倒计时
         if (countdownTimer === null) {
             updateCountdown();
         }
     } catch (error) {
         console.error('加载配置失败:', error);
-        showStatus('加载配置失败', 'error');
+        showStatus(STATUS_MESSAGES.loadConfigFailed, 'error');
     }
 }
 
@@ -82,7 +74,6 @@ async function loadConfig() {
 function renderMessageList() {
     messageListDiv.innerHTML = '';
 
-    // 空列表提示
     if (currentMessages.length === 0) {
         const emptyDiv = document.createElement('div');
         emptyDiv.className = 'empty-message';
@@ -95,7 +86,6 @@ function renderMessageList() {
         const item = document.createElement('div');
         item.className = 'message-item';
 
-        // 序号
         const number = document.createElement('span');
         number.className = 'message-number';
         number.textContent = index + 1;
@@ -120,82 +110,86 @@ function renderMessageList() {
 function addMessage() {
     const newMsg = newMessageInput.value.trim();
     if (!newMsg) {
-        showStatus('请输入提示语', 'error');
+        showStatus(STATUS_MESSAGES.emptyMessage, 'error');
         return;
     }
 
     if (currentMessages.includes(newMsg)) {
-        showStatus('该提示语已存在', 'error');
+        showStatus(STATUS_MESSAGES.duplicateMessage, 'error');
         return;
     }
 
     currentMessages.push(newMsg);
     newMessageInput.value = '';
     renderMessageList();
-    showStatus('✓ 已添加，记得保存', 'success');
+    showStatus(STATUS_MESSAGES.addedMessage, 'success');
 }
 
 // 删除消息
 function deleteMessage(index) {
     if (currentMessages.length <= 1) {
-        showStatus('至少保留一条提示语', 'error');
+        showStatus(STATUS_MESSAGES.keepOneMessage, 'error');
         return;
     }
 
     currentMessages.splice(index, 1);
     renderMessageList();
-    showStatus('✓ 已删除，记得保存', 'success');
+    showStatus(STATUS_MESSAGES.deletedMessage, 'success');
 }
 
-// 保存配置
-async function saveConfig() {
-    const offWorkTime = offWorkTimeInput.value;
-    const reminderInterval = parseInt(reminderIntervalInput.value, 10);
+function collectFormData() {
+    return {
+        offWorkTime: offWorkTimeInput.value,
+        reminderInterval: parseInt(reminderIntervalInput.value, 10),
+        customMessages: currentMessages
+    };
+}
 
-    // 验证
+function validateFormData({ offWorkTime, reminderInterval, customMessages }) {
     if (!offWorkTime) {
-        showStatus('请设置下班时间', 'error');
-        return;
+        return STATUS_MESSAGES.missingOffWorkTime;
     }
 
     if (!reminderInterval || reminderInterval < 1 || reminderInterval > 120) {
-        showStatus('提醒频率需在 1-120 分钟之间', 'error');
-        return;
+        return STATUS_MESSAGES.invalidReminderInterval;
     }
 
-    if (currentMessages.length === 0) {
-        showStatus('至少需要一条提示语', 'error');
+    if (customMessages.length === 0) {
+        return STATUS_MESSAGES.missingCustomMessages;
+    }
+
+    return null;
+}
+
+async function saveConfig() {
+    const formData = collectFormData();
+    const validationError = validateFormData(formData);
+
+    if (validationError) {
+        showStatus(validationError, 'error');
         return;
     }
 
     try {
-        await chrome.storage.sync.set({
-            offWorkTime,
-            reminderInterval,
-            customMessages: currentMessages,
-            messagePool: []  // 重置消息池，确保新配置生效
-        });
-        showStatus('✓ 设置已保存', 'success');
+        await saveSyncConfig(formData);
+        showStatus(STATUS_MESSAGES.saveSuccess, 'success');
     } catch (error) {
         console.error('保存配置失败:', error);
-        showStatus('保存失败，请重试', 'error');
+        showStatus(STATUS_MESSAGES.saveFailed, 'error');
     }
 }
 
 // 测试通知
 async function testNotification() {
     if (currentMessages.length === 0) {
-        showStatus('请先添加提示语', 'error');
+        showStatus(STATUS_MESSAGES.missingTestMessage, 'error');
         return;
     }
 
-    // 生成固定前缀（使用示例时间）
-    const prefix = '你已加班2小时30分钟，别忘了回家！';
-
-    // 随机选择一条提示语
+    const prefix = FIXED_PREFIX
+        .replace('{hours}', '2')
+        .replace('{minutes}', '30');
     const randomMessage = currentMessages[Math.floor(Math.random() * currentMessages.length)];
-
-    // 拼接完整消息
     const testMessage = prefix + '\n' + randomMessage;
 
     try {
@@ -207,23 +201,18 @@ async function testNotification() {
                 console.error('通信错误:', chrome.runtime.lastError);
                 showStatus('错误: ' + chrome.runtime.lastError.message, 'error');
             } else if (response && response.success) {
-                showStatus('✓ 测试通知已发送', 'success');
+                showStatus(STATUS_MESSAGES.testNotificationSuccess, 'success');
             } else if (response && response.error) {
                 console.error('通知错误:', response.error);
                 showStatus('错误: ' + response.error, 'error');
             } else {
-                showStatus('发送失败', 'error');
+                showStatus(STATUS_MESSAGES.sendFailed, 'error');
             }
         });
     } catch (error) {
         console.error('发送请求失败:', error);
-        showStatus('请求失败', 'error');
+        showStatus(STATUS_MESSAGES.requestFailed, 'error');
     }
-}
-
-// 格式化时间单位（补零）
-function formatTimeUnit(value) {
-    return String(value).padStart(2, '0');
 }
 
 // 启动倒计时
@@ -232,51 +221,21 @@ function startCountdown() {
     countdownTimer = setInterval(updateCountdown, 1000);
 }
 
-// 更新倒计时显示
+function renderCountdown(countdownState) {
+    countdownHours.textContent = formatTimeUnit(countdownState.hours);
+    countdownMinutes.textContent = formatTimeUnit(countdownState.minutes);
+    countdownSeconds.textContent = formatTimeUnit(countdownState.seconds);
+    countdownLabel.textContent = countdownState.label;
+    countdownLabel.classList.toggle('overtime', countdownState.isOvertime);
+    countdownDisplay.classList.toggle('overtime', countdownState.isOvertime);
+    countdownSection.classList.toggle('overtime', countdownState.isOvertime);
+    countdownStatus.textContent = countdownState.status;
+    countdownStatus.className = countdownState.isOvertime ? 'countdown-status overtime' : 'countdown-status';
+}
+
 function updateCountdown() {
-    const offWorkTime = offWorkTimeInput.value;
-    const countdownLabel = document.querySelector('.countdown-label');
-    const countdownDisplay = document.querySelector('.countdown-display');
-    const countdownSection = document.querySelector('.countdown-section');
-
-    if (!offWorkTime) {
-        countdownHours.textContent = '--';
-        countdownMinutes.textContent = '--';
-        countdownSeconds.textContent = '--';
-        countdownStatus.textContent = '请设置下班时间';
-        countdownLabel.textContent = '距离下班还有';
-        countdownLabel.classList.remove('overtime');
-        countdownDisplay.classList.remove('overtime');
-        countdownSection.classList.remove('overtime');
-        return;
-    }
-
-    const now = new Date();
-    const [offHour, offMinute] = offWorkTime.split(':').map(Number);
-    const offWorkDate = new Date(now);
-    offWorkDate.setHours(offHour, offMinute, 0, 0);
-
-    const diff = offWorkDate.getTime() - now.getTime();
-    const isOvertime = diff < 0;
-    const timeDiff = Math.abs(diff);
-
-    // 计算时分秒
-    const hours = Math.floor(timeDiff / (1000 * 60 * 60));
-    const minutes = Math.floor((timeDiff % (1000 * 60 * 60)) / (1000 * 60));
-    const seconds = Math.floor((timeDiff % (1000 * 60)) / 1000);
-
-    // 更新显示
-    countdownHours.textContent = formatTimeUnit(hours);
-    countdownMinutes.textContent = formatTimeUnit(minutes);
-    countdownSeconds.textContent = formatTimeUnit(seconds);
-
-    // 更新状态样式
-    countdownLabel.textContent = isOvertime ? '已加班时长' : '距离下班还有';
-    countdownLabel.classList.toggle('overtime', isOvertime);
-    countdownDisplay.classList.toggle('overtime', isOvertime);
-    countdownSection.classList.toggle('overtime', isOvertime);
-    countdownStatus.textContent = '';
-    countdownStatus.className = isOvertime ? 'countdown-status overtime' : 'countdown-status';
+    const countdownState = getCountdownState(new Date(), offWorkTimeInput.value);
+    renderCountdown(countdownState);
 }
 
 // 显示状态消息
@@ -284,7 +243,6 @@ function showStatus(message, type) {
     statusDiv.textContent = message;
     statusDiv.className = 'status ' + type;
 
-    // 3秒后隐藏
     setTimeout(() => {
         statusDiv.className = 'status';
         statusDiv.textContent = '';
