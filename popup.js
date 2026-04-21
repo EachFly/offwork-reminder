@@ -12,6 +12,12 @@ const saveBtn = document.getElementById('saveBtn');
 const testBtn = document.getElementById('testBtn');
 const statusDiv = document.getElementById('status');
 
+// 折叠面板元素
+const toggleBasicSettingsBtn = document.getElementById('toggleBasicSettingsBtn');
+const basicSettingsSection = document.getElementById('basicSettingsSection');
+const toggleCustomMessagesBtn = document.getElementById('toggleCustomMessagesBtn');
+const customMessagesSection = document.getElementById('customMessagesSection');
+
 // 倒计时元素
 const countdownHours = document.getElementById('countdownHours');
 const countdownMinutes = document.getElementById('countdownMinutes');
@@ -31,6 +37,17 @@ let countdownTimer = null;
 document.addEventListener('DOMContentLoaded', async () => {
     await loadConfig();
     startCountdown();
+});
+
+// 折叠面板点击事件
+toggleBasicSettingsBtn.addEventListener('click', () => {
+    basicSettingsSection.classList.toggle('hidden');
+    toggleBasicSettingsBtn.classList.toggle('expanded');
+});
+
+toggleCustomMessagesBtn.addEventListener('click', () => {
+    customMessagesSection.classList.toggle('hidden');
+    toggleCustomMessagesBtn.classList.toggle('expanded');
 });
 
 // 保存按钮点击事件
