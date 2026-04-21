@@ -36,9 +36,34 @@ h1 {
   transition: all 0.3s ease;
 }
 
+/* 定义加班颜色等级变量 */
+.countdown-section.overtime-level-1 {
+  --color-start: #4facfe;
+  --color-end: #00f2fe;
+  --color-rgba: rgba(79, 172, 254, 0.1);
+  --border-rgba: rgba(79, 172, 254, 0.3);
+  --text-color: #4facfe;
+}
+
+.countdown-section.overtime-level-2 {
+  --color-start: #f09819;
+  --color-end: #edde5d;
+  --color-rgba: rgba(240, 152, 25, 0.1);
+  --border-rgba: rgba(240, 152, 25, 0.3);
+  --text-color: #f09819;
+}
+
+.countdown-section.overtime-level-3 {
+  --color-start: #ff5f6d;
+  --color-end: #ffc371;
+  --color-rgba: rgba(255, 95, 109, 0.1);
+  --border-rgba: rgba(255, 95, 109, 0.3);
+  --text-color: #ff5f6d;
+}
+
 .countdown-section.overtime {
-  background: rgba(229, 115, 115, 0.1);
-  border-color: rgba(229, 115, 115, 0.3);
+  background: var(--color-rgba);
+  border-color: var(--border-rgba);
 }
 
 .countdown-label {
@@ -49,7 +74,7 @@ h1 {
 }
 
 .countdown-label.overtime {
-  color: #e57373;
+  color: var(--text-color);
 }
 
 .countdown-display {
@@ -65,7 +90,7 @@ h1 {
 }
 
 .countdown-display.overtime {
-  background: linear-gradient(90deg, #e57373 0%, #ef5350 100%);
+  background: linear-gradient(90deg, var(--color-start) 0%, var(--color-end) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -79,7 +104,7 @@ h1 {
 }
 
 .countdown-status.overtime {
-  color: #e57373;
+  color: var(--text-color);
   font-weight: 600;
 }
 
@@ -106,7 +131,7 @@ h1 {
 }
 
 .countdown-display.overtime span:last-child {
-  background: linear-gradient(90deg, #e57373 0%, #ef5350 100%);
+  background: linear-gradient(90deg, var(--color-start) 0%, var(--color-end) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;

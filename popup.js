@@ -245,7 +245,18 @@ function renderCountdown(countdownState) {
     countdownLabel.textContent = countdownState.label;
     countdownLabel.classList.toggle('overtime', countdownState.isOvertime);
     countdownDisplay.classList.toggle('overtime', countdownState.isOvertime);
-    countdownSection.classList.toggle('overtime', countdownState.isOvertime);
+    
+    countdownSection.classList.remove('overtime', 'overtime-level-1', 'overtime-level-2', 'overtime-level-3');
+    if (countdownState.isOvertime) {
+        let levelClass = 'overtime-level-1'; // < 1h
+        if (countdownState.hours >= 2) {
+            levelClass = 'overtime-level-3'; // >= 2h
+        } else if (countdownState.hours >= 1) {
+            levelClass = 'overtime-level-2'; // 1h <= t < 2h
+        }
+        countdownSection.classList.add('overtime', levelClass);
+    }
+    
     countdownStatus.textContent = countdownState.status;
     countdownStatus.className = countdownState.isOvertime ? 'countdown-status overtime' : 'countdown-status';
 }
