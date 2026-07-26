@@ -1,5 +1,22 @@
 import { STATUS_MESSAGES } from './constants.js';
 
+const OVERTIME_ROLLOVER_HOUR = 6;
+
+export function getRelevantOffWorkDate(now, offWorkTime) {
+    const [offHour, offMinute] = offWorkTime.split(':').map(Number);
+    const offWorkDate = new Date(now);
+    offWorkDate.setHours(offHour, offMinute, 0, 0);
+
+    // 凌晨仍视为前一个工作日，避免跨过午夜后加班计时被重置。
+    const isEarlyMorning = now.getHours() < OVERTIME_ROLLOVER_HOUR;
+    const isDaytimeSchedule = offHour >= OVERTIME_ROLLOVER_HOUR;
+    if (isEarlyMorning && isDaytimeSchedule && offWorkDate.getTime() > now.getTime()) {
+        offWorkDate.setDate(offWorkDate.getDate() - 1);
+    }
+
+    return offWorkDate;
+}
+
 export function getCountdownState(now, offWorkTime) {
     if (!offWorkTime) {
         return {
@@ -12,9 +29,7 @@ export function getCountdownState(now, offWorkTime) {
         };
     }
 
-    const [offHour, offMinute] = offWorkTime.split(':').map(Number);
-    const offWorkDate = new Date(now);
-    offWorkDate.setHours(offHour, offMinute, 0, 0);
+    const offWorkDate = getRelevantOffWorkDate(now, offWorkTime);
 
     const diff = offWorkDate.getTime() - now.getTime();
     const isOvertime = diff < 0;

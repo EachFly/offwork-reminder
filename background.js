@@ -1,5 +1,6 @@
 import { ALARM_NAMES, FIXED_PREFIX, NOTIFICATION_TITLES, SYNC_DEFAULT_CONFIG } from './shared/constants.js';
 import { getConfig, migrateRuntimeState, resetMessagePool, setRuntimeState } from './shared/storage.js';
+import { getRelevantOffWorkDate } from './shared/time.js';
 
 // 设置空闲检测间隔（秒）
 chrome.idle.setDetectionInterval(60);
@@ -165,9 +166,7 @@ async function checkAndNotify() {
     const config = await getConfig();
     const now = new Date();
 
-    const [offHour, offMinute] = config.offWorkTime.split(':').map(Number);
-    const offWorkDate = new Date(now);
-    offWorkDate.setHours(offHour, offMinute, 0, 0);
+    const offWorkDate = getRelevantOffWorkDate(now, config.offWorkTime);
 
     const overtimeMs = now.getTime() - offWorkDate.getTime();
 
@@ -272,7 +271,9 @@ function getNextReminderTriggerTime(intervalMinutes) {
         nextTriggerTime.setMinutes(nextTriggerTime.getMinutes() + 1);
     }
 
-    const remainder = nextTriggerTime.getMinutes() % intervalMinutes;
+    const minutesSinceMidnight =
+        nextTriggerTime.getHours() * 60 + nextTriggerTime.getMinutes();
+    const remainder = minutesSinceMidnight % intervalMinutes;
     if (remainder !== 0) {
         nextTriggerTime.setMinutes(nextTriggerTime.getMinutes() + (intervalMinutes - remainder));
     }
