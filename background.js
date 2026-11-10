@@ -84,10 +84,14 @@ chrome.runtime.onStartup.addListener(async () => {
 // 监听定时器触发
 chrome.alarms.onAlarm.addListener(async (alarm) => {
     if (alarm.name === ALARM_NAMES.reminder) {
-        await checkAndNotify();
+        await checkAndNotify(alarm.scheduledTime);
     } else if (alarm.name === ALARM_NAMES.offWork) {
-        await sendOffWorkTimeNotification();
-        await setupOffWorkAlarm();
+        try {
+            await sendOffWorkTimeNotification(alarm.scheduledTime);
+        } finally {
+            // 下班闹钟只触发一次；本次通知失败也不能中断下一天的提醒。
+            await setupOffWorkAlarm();
+        }
     }
 });
 
@@ -149,7 +153,7 @@ async function setupOffWorkAlarm() {
         offWorkTime.setDate(offWorkTime.getDate() + 1);
     }
 
-    chrome.alarms.create(ALARM_NAMES.offWork, {
+    await chrome.alarms.create(ALARM_NAMES.offWork, {
         when: offWorkTime.getTime()
     });
 
@@ -157,7 +161,7 @@ async function setupOffWorkAlarm() {
 }
 
 // 检查并发送通知
-async function checkAndNotify() {
+async function checkAndNotify(scheduledTime) {
     if (!await isSystemActive()) {
         console.log('系统已锁屏或空闲，跳过本次通知');
         return;
@@ -170,8 +174,9 @@ async function checkAndNotify() {
 
     const overtimeMs = now.getTime() - offWorkDate.getTime();
 
-    if (overtimeMs <= 0) {
-        console.log('还没到下班时间，无需提醒');
+    // 下班首分钟由下班通知负责；按计划时间判断，回调延迟也不会重复提醒。
+    if (overtimeMs < 60_000 || scheduledTime < offWorkDate.getTime() + 60_000) {
+        console.log('下班首分钟及之前的周期闹钟不发送加班提醒');
         return;
     }
 
@@ -207,22 +212,30 @@ async function sendOffWorkNotification(config) {
     console.log('已发送下班通知:', message);
 }
 
-async function sendOffWorkTimeNotification() {
+async function sendOffWorkTimeNotification(scheduledTime) {
     if (!await isSystemActive()) {
         console.log('系统已锁屏或空闲，跳过下班通知');
         return;
     }
 
     const config = await getConfig();
-    const today = new Date().toDateString();
+    const now = new Date();
+    const offWorkDate = getRelevantOffWorkDate(now, config.offWorkTime);
 
-    if (config.lastOffWorkNotifyDate === today) {
-        console.log('今天已发送过下班通知');
+    // 唤醒后可能收到之前工作日或旧配置的闹钟，不能占用当前工作日的提醒。
+    if (scheduledTime !== offWorkDate.getTime() || now.getTime() < scheduledTime) {
+        console.log('下班闹钟不属于当前工作时段，跳过通知');
+        return;
+    }
+
+    const notifyDate = offWorkDate.toDateString();
+    if (config.lastOffWorkNotifyDate === notifyDate) {
+        console.log('本工作日已发送过下班通知');
         return;
     }
 
     await sendOffWorkNotification(config);
-    await setRuntimeState({ lastOffWorkNotifyDate: today });
+    await setRuntimeState({ lastOffWorkNotifyDate: notifyDate });
     console.log('已发送下班时间通知');
 }
 
